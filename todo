@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+
+ASSIGNED_TO_ID=$DEFAULT_ASSIGNED_TO_ID
+
+set -a
+CONFIG_FILE=~/.config/todo/config
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file not found at $CONFIG_FILE" >&2
+    exit 1
+fi
+source "$CONFIG_FILE"
+set +a
+PROJECT_ID=$DEFAULT_PROJECT_ID
+PRIORITY_ID=$DEFAULT_PRIORITY_ID
+SUBJECT=""
+DESCRIPTION=""
+ASSIGNED_TO_ID=$DEFAULT_ASSIGNED_TO_ID
+
+log_error() {
+  echo $1 >&2
+}
+
+set_project_id() {
+  local name=$1
+  local offset=$2
+  declare -A project_map
+
+  local projects_url="$REDMINE_URL/projects.json"
+  if [ -z "$offset" ]; then
+    projects_url="$projects_url?offset=0"
+  else
+    projects_url="$projects_url?offset=$offset"
+  fi
+
+  local response=$(curl -s -u "$API_KEY": \
+       -H "Content-Type: application/json" \
+       $projects_url)
+  if [ "$?" != 0 ]; then
+    log_error "Failed to get projects"
+    return 1
+  fi
+  local total_count=$(echo $response | jq -r '.total_count')
+  local offset=$(echo $response | jq -r '.offset')
+  local limit=$(echo $response | jq -r '.limit')
+  local i=1
+
+  mapfile -t projects < <(echo "$response" | jq -r '.projects[] | "\(.id)|\(.name)"')
+
+  for line in "${projects[@]}"; do
+    id=${line%|*}
+    name=${line#*|}
+    project_map[$i]=$id
+    echo "$i) $name ($id)"
+    ((i++))
+  done
+
+  echo "Select a project number: (default: $DEFAULT_PROJECT_ID)" >&2
+  read -r PROJECT_ID
+  if [ -z "$PROJECT_ID" ]; then
+    PROJECT_ID=$DEFAULT_PROJECT_ID
+  elif [ -z "${project_map[$PROJECT_ID]}" ]; then
+    echo "Invalid project number. Using default project." >&2
+    PROJECT_ID=$DEFAULT_PROJECT_ID
+  else
+    PROJECT_ID=${project_map[$PROJECT_ID]}
+  fi
+}
+
+set_priority_id() {
+  declare -A priorities=(
+    [1]="Low"
+    [2]="Normal"
+    [3]="High"
+    [4]="Urgent"
+    [5]="Immediate"
+  )
+
+  for i in {1..5}; do
+    echo "$i) ${priorities[$i]}" >&2
+  done
+
+  echo "Select a priority number: (default: $DEFAULT_PRIORITY_ID)" >&2
+  read -r PRIORITY_ID
+  if [ -z "$PRIORITY_ID" ]; then
+    PRIORITY_ID=$DEFAULT_PRIORITY_ID
+  elif [ -z "${project_map[$PRIORITY_ID]}" ]; then
+    echo "Invalid priority number. Using default priority." >&2
+    PIORITY_ID=$DEFAULT_PRIORITY_ID
+  else
+    PRIORITY_ID=${project_map[$PRIORITY_ID]}
+  fi
+}
+
+set_subject() {
+  echo "Enter the subject:" >&2
+  read -r SUBJECT
+}
+
+set_description() {
+    local result=""
+    local line=""
+    echo "Enter the description (end with a single '.' on a new line):" >&2
+
+    while IFS= read -r line; do
+        if [ "$line" = "." ]; then
+            break
+        fi
+
+        if [ -n "$result" ]; then
+            result+=$'\n'
+        fi
+        result+="$line"
+    done
+
+    DESCRIPTION="$result"
+}
+
+remove_newlines() {
+  echo "$1" | sed 's/\\/\\\\/g' | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/\r/\\r/g'
+}
+
+create_issue() {
+  local project_id=$1
+  local subject=$2
+  local description=$3
+  local priority_id=$4
+  local response=$(curl -s -u "$API_KEY:" \
+       -H "Content-Type: application/json" \
+       -X POST --data "{
+         \"issue\": {
+           \"project_id\": ${PROJECT_ID},
+           \"subject\": \"${SUBJECT}\",
+           \"description\": \"$(remove_newlines "$DESCRIPTION")\",
+           \"priority_id\": ${PRIORITY_ID},
+           \"tracker_id\": ${TRACKER_ID},
+           \"assigned_to_id\": ${ASSIGNED_TO_ID},
+           \"is_private\": true
+         }
+       }" "$REDMINE_URL/issues.json")
+  if [ "$?" != "0" ]; then
+    log_error "Can not create issue" >&2
+    exit 1
+  fi
+  issue_id=$(echo $response | jq -r '.issue.id')
+  echo "Issue created: $REDMINE_URL/issues/$issue_id"
+}
+
+prime_ai(){
+  # set -x
+  local prompt="Ignore this message it's just a primer for future request. Only respond with OK."
+
+ curl -s $CHATGPT_URL/api/chat/completions \
+   -H "Content-Type: application/json" \
+   -H "Authorization: Bearer $CHATGPT_API_KEY" \
+   -d "{
+         \"model\": \"$CHATGPT_MODEL\",
+         \"messages\": [{
+           \"role\": \"user\",
+           \"content\": \"$prompt\"
+      }]
+    }" 2>&1 >/dev/null &
+}
+
+improve_description(){
+  # set -x
+  local prompt="Return "SKIP" if you can not produce a bullet list or acceptance criteria. Create a bullet list of action items and acceptance criteria from the following subject and description. Keep each bullet point consise. The aceptance criteria is optional. Do not describe the steps taken. If no action items or acceptance criteria are found, return "SKIP". Expected output format:\n**Action Items**\n- Bullet point example 1\n- Bullet point example 2\n\n**Acceptance Criteria**\nHere is an example of an acceptance criteria:\n\nSubject:\n==========\n$SUBJECT\n\nDescription:\n==========\n$(remove_newlines "$DESCRIPTION")\n"
+
+    local response=$(curl -s $CHATGPT_URL/api/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $CHATGPT_API_KEY" \
+      -d "{
+            \"model\": \"$CHATGPT_MODEL\",
+            \"messages\": [{
+              \"role\": \"user\",
+              \"content\": \"$prompt\"
+         }]
+    }")
+
+    local improved_desc=$(echo "$response" | jq -r '.choices[0].message.content' | sed -z 's/<think>.*<\/think>//g')
+    if ! [ "${improved_desc,,}" = "skip" ]; then
+      ai_desc=$(cat <<EOF
+## Original Description:
+$DESCRIPTION
+
+## AI Generated Description:
+$improved_desc
+EOF
+)
+
+      echo "$ai_desc"
+      echo "Accept this improved version? (Y/n)" >&2
+      read -r accept
+      # Convert to lower case before comparing
+      if ! [ "${accept,,}" = "n" ]; then
+          DESCRIPTION="$ai_desc"
+      fi
+    fi
+}
+
+main() {
+  prime_ai
+  set_project_id
+  set_priority_id
+  set_subject
+  set_description
+  improve_description
+  create_issue
+}
+
+main
