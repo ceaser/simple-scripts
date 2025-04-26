@@ -83,11 +83,12 @@ set_priority_id() {
   read -r PRIORITY_ID
   if [ -z "$PRIORITY_ID" ]; then
     PRIORITY_ID=$DEFAULT_PRIORITY_ID
-  elif [ -z "${project_map[$PRIORITY_ID]}" ]; then
+  elif [ -z "${priorities[$PRIORITY_ID]}" ]; then
     echo "Invalid priority number. Using default priority." >&2
-    PIORITY_ID=$DEFAULT_PRIORITY_ID
+    PRIORITY_ID=$DEFAULT_PRIORITY_ID
   else
-    PRIORITY_ID=${project_map[$PRIORITY_ID]}
+    echo "Priority selected: ${priorities[$PRIORITY_ID]}"
+    PRIORITY_ID=${PRIORITY_ID}
   fi
 }
 
@@ -141,6 +142,13 @@ create_issue() {
     log_error "Can not create issue" >&2
     exit 1
   fi
+
+  if ! echo "$response" | jq -e '.issue.id' >/dev/null; then
+    log_error "Failed to create issue" >&2
+    echo "$response" >&2
+    exit 1
+  fi
+
   issue_id=$(echo $response | jq -r '.issue.id')
   echo "Issue created: $REDMINE_URL/issues/$issue_id"
 }
