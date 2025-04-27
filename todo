@@ -64,6 +64,10 @@ set_project_id() {
   else
     PROJECT_ID=${project_map[$PROJECT_ID]}
   fi
+  echo "Project selected: \
+    $(echo $response | \
+    jq -r --arg id $PROJECT_ID \
+    '.projects[] | select(.id == ($id | tonumber )) | .name')"
 }
 
 set_priority_id() {
@@ -87,9 +91,9 @@ set_priority_id() {
     echo "Invalid priority number. Using default priority." >&2
     PRIORITY_ID=$DEFAULT_PRIORITY_ID
   else
-    echo "Priority selected: ${priorities[$PRIORITY_ID]}"
     PRIORITY_ID=${PRIORITY_ID}
   fi
+  echo "Priority selected: ${priorities[$PRIORITY_ID]}"
 }
 
 set_subject() {
