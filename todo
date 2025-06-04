@@ -163,7 +163,6 @@ create_issue() {
 }
 
 prime_ai(){
-  # set -x
   local prompt="Ignore this message it's just a primer for future request. Only respond with OK."
 
  curl -s $CHATGPT_URL/api/chat/completions \
@@ -179,7 +178,6 @@ prime_ai(){
 }
 
 improve_description(){
-  # set -x
   local prompt="Return "SKIP" if you can not produce a bullet list or acceptance criteria. Create a bullet list of action items and acceptance criteria from the following subject and description. Keep each bullet point consise. The aceptance criteria is optional. Do not describe the steps taken. If no action items or acceptance criteria are found, return "SKIP". Expected output format:\n**Action Items**\n- Bullet point example 1\n- Bullet point example 2\n\n**Acceptance Criteria**\nHere is an example of an acceptance criteria:\n\nSubject:\n==========\n$SUBJECT\n\nDescription:\n==========\n$(remove_newlines "$DESCRIPTION")\n"
 
     local response=$(curl -s $CHATGPT_URL/api/chat/completions \
@@ -192,9 +190,8 @@ improve_description(){
               \"content\": \"$prompt\"
          }]
     }")
-
     local improved_desc=$(echo "$response" | jq -r '.choices[0].message.content' | $sed -z 's/<think>.*<\/think>//g')
-    if ! [ "${improved_desc,,}" = "skip" ]; then
+    if ! [ "${improved_desc,,}" = "skip" ] && ! [ "${improved_desc,,}" = "null" ]; then
       ai_desc=$(cat <<EOF
 ## Original Description:
 $DESCRIPTION
@@ -203,7 +200,6 @@ $DESCRIPTION
 $improved_desc
 EOF
 )
-
       echo "$ai_desc"
       echo "Accept this improved version? (Y/n)" >&2
       read -r accept
