@@ -2,6 +2,11 @@
 
 ASSIGNED_TO_ID=$DEFAULT_ASSIGNED_TO_ID
 
+sed="sed"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed='gsed'
+fi
+
 set -a
 CONFIG_FILE=~/.config/todo/config
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -121,7 +126,7 @@ set_description() {
 }
 
 remove_newlines() {
-  echo "$1" | sed 's/\\/\\\\/g' | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/\r/\\r/g'
+  echo "$1" | $sed 's/\\/\\\\/g' | $sed ':a;N;$!ba;s/\n/\\n/g' | $sed 's/\r/\\r/g'
 }
 
 create_issue() {
@@ -188,7 +193,7 @@ improve_description(){
          }]
     }")
 
-    local improved_desc=$(echo "$response" | jq -r '.choices[0].message.content' | sed -z 's/<think>.*<\/think>//g')
+    local improved_desc=$(echo "$response" | jq -r '.choices[0].message.content' | $sed -z 's/<think>.*<\/think>//g')
     if ! [ "${improved_desc,,}" = "skip" ]; then
       ai_desc=$(cat <<EOF
 ## Original Description:
