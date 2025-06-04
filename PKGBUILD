@@ -1,6 +1,6 @@
 # Maintainer: Ceaser Larry <clarry@divergentlogic.com> -> https://github.com/ceaser/
 pkgname=simple-scripts
-pkgver=1.1.0.r0.b986d81
+pkgver=1.2.0.r0.2ff9290
 pkgrel=1
 pkgdesc="Simple scripts I use"
 arch=(x86_64)
